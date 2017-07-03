@@ -300,8 +300,7 @@ void srv_stream_music::handle(mg_conn *conn, http_message *hm, mg_str prefix) {
 		mg_start_thread(start_streaming, sp);
 	}
 	else {
-		json ret({ });
-		conn->response_json(404, &ret);
+		conn->response_json(404, { });
 		delete sp;
 	}
 }

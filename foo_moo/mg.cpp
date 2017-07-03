@@ -44,9 +44,13 @@ mg_conn::mg_conn(mg_mgr *m, mg_connection *c) : mgr(m), nc(c) {
 	tid = GetCurrentThreadId();
 }
 
-void mg_conn::response_json(int code, json *data) {
+void mg_conn::response_json(int code, std::initializer_list<json> init) {
+	response_json(code, json(init));
+}
+
+void mg_conn::response_json(int code, json data) {
 	char buf[1024];
-	auto temp = data->dump();
+	auto temp = data.dump();
 	auto size = sprintf(buf, "HTTP/1.1 %d OK\r\n"
 		"Content-Type: application/json; charset=utf-8\r\n"
 		"Content-Length: %d\r\n"
@@ -149,10 +153,11 @@ void mg::run_forever(const char* addr, mg_serve_http_opts *http_opts, bool *is_r
 	mg_mgr_free(mgr);
 }
 
-void mg::broadcast_via_ws(const char *buf, int size) {
+void mg::broadcast_json(std::initializer_list<json> init) {
+	auto body = json(init).dump();
 	for (auto c = mg_next(mgr, NULL); c != NULL; c = mg_next(mgr, c)) {
 		if (c->flags & MG_F_IS_WEBSOCKET) {
-			mg_send_websocket_frame(c, WEBSOCKET_OP_TEXT, buf, size >= 0 ? size : strlen(buf));
+			mg_send_websocket_frame(c, WEBSOCKET_OP_TEXT, body.c_str(), body.length());
 		}
 	}
 }

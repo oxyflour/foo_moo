@@ -21,8 +21,9 @@ public:
 			pc->play_or_pause();
 		}
 
-		json ret({ { "result", "ok" } });
-		conn->response_json(200, &ret);
+		conn->response_json(200, {
+			{ "result", "ok" }
+		});
 	}
 };
 
@@ -48,5 +49,5 @@ void api_browse_library::handle(mg_conn *conn, http_message *hm, mg_str prefix) 
 	int end = strlen(num) ? atoi(num) : -1;
 
 	auto ret = _db->browse_items(path, begin, end);
-	conn->response_json(200, &ret);
+	conn->response_json(200, ret);
 }

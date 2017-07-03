@@ -22,7 +22,8 @@ public:
 	bool is_buffered = false;
 	mg_conn(mg_mgr *m, mg_connection *c);
 	void send(const void *p, size_t size);
-	void response_json(int code, json *data);
+	void response_json(int code, std::initializer_list<json> init);
+	void response_json(int code, json data);
 	void set_flags(unsigned long flags);
 };
 
@@ -49,7 +50,7 @@ public:
 	void add_route(const char* path, mg_route_handler *handler);
 	void run_forever(const char* addr, mg_serve_http_opts *opts, bool *is_running);
 
-	void broadcast_via_ws(const char *buf, int size = -1);
+	void broadcast_json(std::initializer_list<json> init);
 
 	mg_conn *get_conn(mg_connection *nc) {
 		if (conns[nc] == NULL) {

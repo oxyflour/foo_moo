@@ -57,15 +57,21 @@ public:
 	lib_listener(mg *m, db *d) : _mg(m), _db(d) { }
 	void on_items_added(const pfc::list_base_const_t<metadb_handle_ptr> &list) {
 		_db->add_items(list);
-		_mg->broadcast_via_ws("lib:add");
+		_mg->broadcast_json({
+			{ "type", "lib:add" }
+		});
 	}
 	void on_items_removed(const pfc::list_base_const_t<metadb_handle_ptr> &list) {
 		_db->remove_items(list);
-		_mg->broadcast_via_ws("lib:remove");
+		_mg->broadcast_json({
+			{ "type", "lib:remove" }
+		});
 	}
 	void on_items_modified(const pfc::list_base_const_t<metadb_handle_ptr> &list) {
 		_db->update_items(list);
-		_mg->broadcast_via_ws("lib:update");
+		_mg->broadcast_json({
+			{ "type", "lib:update" }
+		});
 	}
 };
 
@@ -75,22 +81,38 @@ private:
 public:
 	play_listener(mg *p) : _mg(p) { }
 	void on_playback_starting(play_control::t_track_command p_command, bool p_paused) {
-		_mg->broadcast_via_ws("play:start");
+		_mg->broadcast_json({
+			{ "type", "play:start" },
+			{ "is_paused", p_paused },
+		});
 	}
 	void on_playback_new_track(metadb_handle_ptr p_track) {
-		_mg->broadcast_via_ws("play:track");
+		_mg->broadcast_json({
+			{ "type", "play:track" },
+		});
 	}
 	void on_playback_stop(play_control::t_stop_reason p_reason) {
-		_mg->broadcast_via_ws("play:stop");
+		_mg->broadcast_json({
+			{ "type", "play:stop" }
+		});
 	}
 	void on_playback_pause(bool p_state) {
-		_mg->broadcast_via_ws("play:pause");
+		_mg->broadcast_json({
+			{ "type", "play:pause" },
+			{ "is_paused", p_state },
+		});
 	}
 	void on_volume_change(float p_new_val) {
-		_mg->broadcast_via_ws("play:volume");
+		_mg->broadcast_json({
+			{ "type", "play:volume" },
+			{ "volume", p_new_val },
+		});
 	}
 	void on_playback_seek(double p_time) {
-		_mg->broadcast_via_ws("play:seek");
+		_mg->broadcast_json({
+			{ "type", "play:seek" },
+			{ "time", p_time },
+		});
 	}
 };
 
