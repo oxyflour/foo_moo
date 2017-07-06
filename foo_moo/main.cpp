@@ -81,14 +81,22 @@ private:
 public:
 	play_listener(mg *p) : _mg(p) { }
 	void on_playback_starting(play_control::t_track_command p_command, bool p_paused) {
+		static_api_ptr_t<playback_control> pc;
 		_mg->broadcast_json({
 			{ "type", "play:start" },
-			{ "is_paused", p_paused },
+			{ "time", pc->playback_get_position() },
 		});
 	}
 	void on_playback_new_track(metadb_handle_ptr p_track) {
+		static_api_ptr_t<playback_control> pc;
 		_mg->broadcast_json({
-			{ "type", "play:track" },
+			{ "type", "play:meta" },
+			{ "src", p_track->get_path() },
+			{ "duration", p_track->get_length() },
+			{ "time", pc->playback_get_position() },
+			{ "volume", pc->get_volume() },
+			{ "paused", pc->is_paused() },
+			{ "stopped", !pc->is_playing() },
 		});
 	}
 	void on_playback_stop(play_control::t_stop_reason p_reason) {
@@ -97,9 +105,10 @@ public:
 		});
 	}
 	void on_playback_pause(bool p_state) {
+		static_api_ptr_t<playback_control> pc;
 		_mg->broadcast_json({
-			{ "type", "play:pause" },
-			{ "is_paused", p_state },
+			{ "type", p_state ? "play:pause" : "play:start" },
+			{ "time", pc->playback_get_position() },
 		});
 	}
 	void on_volume_change(float p_new_val) {
@@ -154,7 +163,7 @@ public:
 		auto addr                     = string_or_null(config, "bind_address", "8080");
 
 		_mg->add_route("/srv/stream/", new srv_stream_music(_db));
-		_mg->add_route("/api/playback/", new api_playback_control());
+		_mg->add_route("/api/playback/", new api_playback_control(_db));
 		_mg->add_route("/api/browse/", new api_browse_library(_db));
 
 		_mg->run_forever(addr, &opts, &is_running);

@@ -266,9 +266,13 @@ static void strrep(char *str, char find, char replace) {
 	}
 }
 
-json db::browse_items(const char *path, int begin, int end) {
+json db::browse_items(const char *p, int begin, int end) {
 	auto list = json::array();
 	int total = 0;
+
+	char path[4096];
+	strcpy(path, p);
+	strrep(path, '/', '\\');
 
 	auto slashes_count = 0;
 	for (auto p = path; *p; p++) {
@@ -297,13 +301,13 @@ json db::browse_items(const char *path, int begin, int end) {
 			}
 			else {
 				if (total >= begin && (end < 0 || total < end)) {
-					char buf[4096];
-					strcpy(buf, dir);
-					strrep(buf, '\\', '/');
+					char path[4096];
+					sprintf(path, "/%s", sqlite3_column_text(stmt, 3));
+					strrep(path, '\\', '/');
 					list.push_back(json({
 						{ "type", "folder" },
 						{ "id", id },
-						{ "path", buf },
+						{ "path", path },
 					}));
 				}
 				total++;

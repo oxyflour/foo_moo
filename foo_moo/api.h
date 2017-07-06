@@ -10,6 +10,10 @@
 #include "../mongoose-6.8/mongoose.h"
 
 class api_playback_control : public mg_route_handler {
+private:
+	db *_db;
+public:
+	api_playback_control(db *d) : _db(d) { }
 public:
 	virtual void handle(mg_conn *conn, http_message *hm, mg_str prefix);
 };
