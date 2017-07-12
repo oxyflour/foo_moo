@@ -120,7 +120,7 @@ void db::init_db() {
 	}
 }
 
-void db::exec_sql(const char* action, const char* sql_tpl,
+void db::exec_sql_each(const char* action, const char* sql_tpl,
 		const pfc::list_base_const_t<metadb_handle_ptr> &list) {
 	// Prepare formatter
 	static_api_ptr_t<titleformat_compiler> tfc;
@@ -200,7 +200,7 @@ void db::add_items(const pfc::list_base_const_t<metadb_handle_ptr> &list) {
 			"%length_seconds%, "
 			"''%last_modified%''"
 		"')'; ";
-	exec_sql("add", tpl, list);
+	exec_sql_each("add", tpl, list);
 }
 
 void db::remove_items(const pfc::list_base_const_t<metadb_handle_ptr> &list) {
@@ -211,7 +211,7 @@ void db::remove_items(const pfc::list_base_const_t<metadb_handle_ptr> &list) {
 		"DELETE FROM `" DB_PATH_TABLE "` WHERE directory_path=''$directory_path(%path%)\\'' "
 			"AND NOT EXISTS '('SELECT  `" DB_TRACK_TABLE "`.id FROM `" DB_TRACK_TABLE "` LEFT JOIN `" DB_PATH_TABLE "` "
 			"ON pid=`" DB_PATH_TABLE "`.id WHERE directory_path=''$directory_path(%path%)\\'' LIMIT 0,1')';";
-	exec_sql("remove", tpl, list);
+	exec_sql_each("remove", tpl, list);
 }
 
 void db::update_items(const pfc::list_base_const_t<metadb_handle_ptr> &list) {
@@ -230,32 +230,44 @@ void db::update_items(const pfc::list_base_const_t<metadb_handle_ptr> &list) {
 		"WHERE `pid`='('SELECT id FROM `" DB_PATH_TABLE "` WHERE directory_path=''$directory_path(%path%)\\'' LIMIT 0,1')' "
 			"AND filename_ext=''%filename_ext%'' "
 			"AND subsong=%subsong%;";
-	exec_sql("update", tpl, list);
+	exec_sql_each("update", tpl, list);
 }
 
-json db::query_track_from_id(int id) {
-	char path[4096] = { 0 };
-	int subsong = -1;
+json db::query_track_from_id(std::vector<int> ids) {
+	auto list = json::array();
+
+	char ids_join[4096] = { 0 };
+	char case_join[4096] = { 0 };
+	for (auto i = 0, n = 0, m = 0; i < ids.size() && n < sizeof(ids_join); i++) {
+		n += sprintf(ids_join + n, n == 0 ? "%d" : ", %d", ids[i]);
+		m += sprintf(case_join + m, m == 0 ? "WHEN %d THEN %d" : " WHEN %d THEN %d", ids[i], i);
+	}
+
+	char sql[8192] = { 0 };
+	sprintf(sql, "SELECT `" DB_TRACK_TABLE "`.`id`, `directory_path` || `filename_ext`, `subsong` FROM `" DB_TRACK_TABLE "` "
+		"LEFT JOIN `" DB_PATH_TABLE "` ON `" DB_TRACK_TABLE "`.`pid`=`" DB_PATH_TABLE "`.`id` "
+		"WHERE `" DB_TRACK_TABLE "`.`id` in (%s) "
+		"ORDER BY CASE `" DB_TRACK_TABLE "`.`id` %s END", ids_join, case_join);
 
 	sqlite3_stmt *stmt;
-	if (sqlite3_prepare_v2(_db, "SELECT `directory_path`, `filename_ext`, `subsong` FROM `" DB_TRACK_TABLE "` "
-			"LEFT JOIN `" DB_PATH_TABLE "` ON `" DB_TRACK_TABLE "`.`pid`=`" DB_PATH_TABLE "`.`id` "
-			"WHERE `" DB_TRACK_TABLE "`.`id`=?", -1, &stmt, NULL) == SQLITE_OK &&
-		sqlite3_bind_int(stmt, 1, id) == SQLITE_OK) {
-		if (sqlite3_step(stmt) == SQLITE_ROW) {
-			auto directory = (const char *) sqlite3_column_text(stmt, 0);
-			auto filename = (const char *) sqlite3_column_text(stmt, 1);
-			sprintf(path, "%s%s", directory, filename);
-
-			subsong = sqlite3_column_int(stmt, 2);
+	if (sqlite3_prepare_v2(_db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+		while (sqlite3_step(stmt) != SQLITE_DONE) {
+			list.push_back({
+				{ "id", sqlite3_column_int(stmt, 0) },
+				{ "path", (const char *) sqlite3_column_text(stmt, 1) },
+				{ "subsong", sqlite3_column_int(stmt, 2) },
+			});
 		}
 	}
 	sqlite3_finalize(stmt);
 
-	return json({
-		{ "path", path },
-		{ "subsong", subsong }
-	});
+	return list;
+}
+
+json db::query_track_from_id(int id) {
+	std::vector<int> ids = { id };
+	auto list = query_track_from_id(ids);
+	return list[0];
 }
 
 static void strrep(char *str, char find, char replace) {
@@ -265,6 +277,11 @@ static void strrep(char *str, char find, char replace) {
 		}
 	}
 }
+
+struct folder_id_path {
+	int id;
+	std::string path;
+};
 
 json db::browse_items(const char *p, int begin, int end) {
 	auto list = json::array();
@@ -281,7 +298,7 @@ json db::browse_items(const char *p, int begin, int end) {
 
 	sqlite3_stmt *stmt;
 	char sql[4096];
-	std::vector<int> dirs;
+	std::vector<folder_id_path> dirs;
 
 	// get folders
 	sprintf(sql, "SELECT i, d, b, SUBSTR(b, 1, e - r) AS p "
@@ -295,9 +312,11 @@ json db::browse_items(const char *p, int begin, int end) {
 		sqlite3_bind_text(stmt, 1, path, strlen(path), SQLITE_STATIC) == SQLITE_OK) {
 		while (sqlite3_step(stmt) != SQLITE_DONE) {
 			auto id = sqlite3_column_int(stmt, 0);
+			auto real_path = (const char *)sqlite3_column_text(stmt, 1);
 			auto dir = (const char *)sqlite3_column_text(stmt, 2);
 			if (strcmp(path, dir) == 0) {
-				dirs.push_back(id);
+				folder_id_path ip = { id, real_path };
+				dirs.push_back(ip);
 			}
 			else {
 				if (total >= begin && (end < 0 || total < end)) {
@@ -318,22 +337,23 @@ json db::browse_items(const char *p, int begin, int end) {
 
 	// get tracks
 	for (auto i = dirs.begin(); i != dirs.end(); ++i) {
-		strcpy(sql, "SELECT id, title, tracknumber, artist, album, album_artist, length, length_seconds "
+		strcpy(sql, "SELECT id, filename_ext, subsong, title, tracknumber, artist, album, album_artist, length, length_seconds, codec "
 			"FROM " DB_TRACK_TABLE " WHERE pid=? ORDER BY album, tracknumber");
 		if (sqlite3_prepare_v2(_db, sql, -1, &stmt, NULL) == SQLITE_OK &&
-			sqlite3_bind_int(stmt, 1, *i) == SQLITE_OK) {
+			sqlite3_bind_int(stmt, 1, i->id) == SQLITE_OK) {
 			while (sqlite3_step(stmt) != SQLITE_DONE) {
 				if (total >= begin && (end < 0 || total < end)) {
 					list.push_back(json({
 						{ "type", "track" },
 						{ "id", sqlite3_column_int(stmt, 0) },
-						{ "title", (const char *)sqlite3_column_text(stmt, 1) },
-						{ "tracknumber", sqlite3_column_int(stmt, 2) },
-						{ "artist", (const char *)sqlite3_column_text(stmt, 3) },
-						{ "album", (const char *)sqlite3_column_text(stmt, 4) },
-						{ "album_artist", (const char *)sqlite3_column_text(stmt, 5) },
-						{ "length", (const char *)sqlite3_column_text(stmt, 6) },
-						{ "length_seconds", sqlite3_column_int(stmt, 7) },
+						{ "title", (const char *)sqlite3_column_text(stmt, 3) },
+						{ "tracknumber", sqlite3_column_int(stmt, 4) },
+						{ "artist", (const char *)sqlite3_column_text(stmt, 5) },
+						{ "album", (const char *)sqlite3_column_text(stmt, 6) },
+						{ "album_artist", (const char *)sqlite3_column_text(stmt, 7) },
+						{ "length", (const char *)sqlite3_column_text(stmt, 8) },
+						{ "length_seconds", sqlite3_column_int(stmt, 9) },
+						{ "codec", (const char *)sqlite3_column_text(stmt, 10) },
 					}));
 				}
 				total++;

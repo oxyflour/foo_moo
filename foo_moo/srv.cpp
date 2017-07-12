@@ -272,7 +272,24 @@ srv_stream_music::srv_stream_music(db* d) : _db(d) {
 }
 
 void srv_stream_music::handle(mg_conn *conn, http_message *hm, mg_str prefix) {
+	char uri[1024] = { 0 };
+	strncpy(uri, hm->uri.p + prefix.len, hm->uri.len - prefix.len);
+
+	auto id = atoi(uri);
+	auto ret = _db->query_track_from_id(id);
+	if (ret["id"].get<int>() != id) {
+		conn->response_json(404, { });
+		return;
+	}
+
 	auto sp = new stream_service(conn);
+	sp->subsong = ret["subsong"].get<int>();
+
+	auto ext = strrchr(uri, '.');
+	strcpy(sp->fmt, ext ? ext + 1 : "wav");
+
+	auto path = ret["path"].get<std::string>();
+	strcpy(sp->path, path.c_str());
 
 	char request_range[128] = { 0 };
 	for (auto i = 0; hm->header_names[i].len > 0; i++) {
@@ -284,23 +301,5 @@ void srv_stream_music::handle(mg_conn *conn, http_message *hm, mg_str prefix) {
 		}
 	}
 
-	char uri[1024] = { 0 };
-	strncpy(uri, hm->uri.p + prefix.len, hm->uri.len - prefix.len);
-
-	auto ext = strrchr(uri, '.');
-	strcpy(sp->fmt, ext ? ext + 1 : "wav");
-
-	auto ret = _db->query_track_from_id(atoi(uri));
-	sp->subsong = ret["subsong"].get<int>();
-
-	auto path = ret["path"].get<std::string>();
-	strcpy(sp->path, path.c_str());
-
-	if (sp->subsong >= 0) {
-		mg_start_thread(start_streaming, sp);
-	}
-	else {
-		conn->response_json(404, { });
-		delete sp;
-	}
+	mg_start_thread(start_streaming, sp);
 }

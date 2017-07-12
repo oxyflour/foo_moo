@@ -84,31 +84,25 @@ public:
 		static_api_ptr_t<playback_control> pc;
 		_mg->broadcast_json({
 			{ "type", "play:start" },
-			{ "time", pc->playback_get_position() },
+			{ "currentTime", pc->playback_get_position() },
 		});
 	}
 	void on_playback_new_track(metadb_handle_ptr p_track) {
-		static_api_ptr_t<playback_control> pc;
 		_mg->broadcast_json({
 			{ "type", "play:meta" },
-			{ "src", p_track->get_path() },
-			{ "duration", p_track->get_length() },
-			{ "time", pc->playback_get_position() },
-			{ "volume", pc->get_volume() },
-			{ "paused", pc->is_paused() },
-			{ "stopped", !pc->is_playing() },
+			{ "meta", api_playback_control::get_playback_meta() },
 		});
 	}
 	void on_playback_stop(play_control::t_stop_reason p_reason) {
 		_mg->broadcast_json({
-			{ "type", "play:stop" }
+			{ "type", p_reason == play_control::t_stop_reason::stop_reason_eof ? "play:ended" : "play:stop" },
 		});
 	}
 	void on_playback_pause(bool p_state) {
 		static_api_ptr_t<playback_control> pc;
 		_mg->broadcast_json({
 			{ "type", p_state ? "play:pause" : "play:start" },
-			{ "time", pc->playback_get_position() },
+			{ "currentTime", pc->playback_get_position() },
 		});
 	}
 	void on_volume_change(float p_new_val) {
@@ -120,7 +114,7 @@ public:
 	void on_playback_seek(double p_time) {
 		_mg->broadcast_json({
 			{ "type", "play:seek" },
-			{ "time", p_time },
+			{ "currentTime", p_time },
 		});
 	}
 };

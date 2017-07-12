@@ -14,7 +14,7 @@ private:
 	db *_db;
 public:
 	api_playback_control(db *d) : _db(d) { }
-public:
+	static json get_playback_meta();
 	virtual void handle(mg_conn *conn, http_message *hm, mg_str prefix);
 };
 

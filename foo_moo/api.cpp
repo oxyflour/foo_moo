@@ -1,57 +1,90 @@
 #include "api.h"
 
+static int playing_track_id;
+
+json api_playback_control::get_playback_meta() {
+	static_api_ptr_t<playback_control> pc;
+	metadb_handle_ptr p_track;
+	auto is_playing = pc->get_now_playing(p_track);
+	return json({
+		{ "srcId", playing_track_id },
+		{ "duration", is_playing ? p_track->get_length() : 0 },
+		{ "currentTime", pc->playback_get_position() },
+		{ "volume", pc->get_volume() },
+		{ "paused", pc->is_paused() },
+		{ "stopped", !pc->is_playing() },
+	});
+}
+
 class main_thread_play_control : public main_thread_callback {
 public:
-	char cmd[1024] = { 0 };
+	char uri[1024] = { 0 };
 	mg_conn *conn;
 	db *_db;
 	virtual void callback_run() {
-		console::printf("foo_moo: play control '%s'", cmd);
+		console::printf("foo_moo: play control '%s'", uri);
 
 		static_api_ptr_t<playback_control> pc;
-		if (!strcmp(cmd, "meta")) {
-			metadb_handle_ptr p_track;
-			auto is_playing = pc->get_now_playing(p_track);
+		if (!strcmp(uri, "meta")) {
 			conn->response_json(200, {
-				{ "src", is_playing ? p_track->get_path() : "" },
-				{ "duration", is_playing ? p_track->get_length() : 0 },
-				{ "time", pc->playback_get_position() },
-				{ "volume", pc->get_volume() },
-				{ "paused", pc->is_paused() },
-				{ "stopped", !pc->is_playing() },
+				{ "meta", api_playback_control::get_playback_meta() },
 			});
 		}
-		else if (strncmp(cmd, "start/", strlen("start/")) == 0) {
-			auto id = atoi(cmd + strlen("start/"));
-			if (id > 0) {
-				auto ret = _db->query_track_from_id(id);
-				if (ret["subsong"].get<int>() >= 0) {
-					// TODO
-					conn->response_json(200, ret);
+		else if (!strncmp(uri, "src/", strlen("src/"))) {
+			playing_track_id = atoi(strchr(uri, '/') + 1);
+
+			auto ret = _db->query_track_from_id(playing_track_id);
+			auto id = ret["id"].get<int>();
+			if (playing_track_id > 0 && id == playing_track_id) {
+				auto path = ret["path"].get<std::string>();
+				auto subsong = ret["subsong"].get<int>();
+
+				pfc::list_t<metadb_handle_ptr> temp;
+				static_api_ptr_t<playlist_incoming_item_filter> pliif;
+				pliif->process_location(path.c_str(), temp, false, NULL, NULL, core_api::get_main_window());
+
+				static_api_ptr_t<playlist_manager> plm;
+				plm->queue_flush();
+
+				auto len = temp.get_count();
+				for (auto i = 0; i < len; i++) {
+					auto item = temp.get_item(i);
+					if (item->get_subsong_index() == subsong) {
+						plm->queue_add_item(item);
+					}
 				}
-				else {
-					conn->response_json(404, {});
-				}
+
+				pc->set_stop_after_current(true);
+				conn->response_json(200, {
+					{ "result", "ok" },
+					{ "path", path },
+					{ "subsong", subsong },
+				});
 			}
 			else {
-				conn->response_json(404, {});
+				conn->response_json(404, {
+					{ "error", "track not found" },
+				});
 			}
 		}
 		else {
-			if (!strcmp(cmd, "start")) {
+			if (!strcmp(uri, "start")) {
 				pc->play_start();
 			}
-			else if (!strcmp(cmd, "pause")) {
+			else if (!strcmp(uri, "play")) {
+				pc->play_or_unpause();
+			}
+			else if (!strcmp(uri, "pause")) {
 				pc->pause(true);
 			}
-			else if (!strcmp(cmd, "stop")) {
+			else if (!strcmp(uri, "stop")) {
 				pc->play_stop();
 			}
-			else if (!strcmp(cmd, "play-pause")) {
+			else if (!strcmp(uri, "play-pause")) {
 				pc->play_or_pause();
 			}
 			conn->response_json(200, {
-				{ "result", "ok" }
+				{ "result", "ok" },
 			});
 		}
 	}
@@ -59,7 +92,7 @@ public:
 
 void api_playback_control::handle(mg_conn *conn, http_message *hm, mg_str prefix) {
 	auto cb = new service_impl_t<main_thread_play_control>();
-	strncpy(cb->cmd, hm->uri.p + prefix.len, hm->uri.len - prefix.len);
+	strncpy(cb->uri, hm->uri.p + prefix.len, hm->uri.len - prefix.len);
 	cb->conn = conn;
 	cb->_db = _db;
 	static_api_ptr_t<main_thread_callback_manager> cbm;
